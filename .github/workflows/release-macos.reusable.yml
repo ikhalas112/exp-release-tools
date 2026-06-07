@@ -139,7 +139,7 @@ jobs:
           TAG="$GITHUB_REF_NAME"
           "$ENGINE_BIN" resolve "$TAG" --config="$CONFIG" --format=env --platform=macos \
             | while IFS= read -r line; do
-                if [[ "$line" =~ ^export\ ([A-Z_]+)=\"(.*)\"$ ]]; then
+                if [[ "$line" =~ ^export\ ([A-Z0-9_]+)=\"(.*)\"$ ]]; then
                   name="${BASH_REMATCH[1]}"
                   value="${BASH_REMATCH[2]//\\\"/\"}"
                   echo "${name}=${value}" >> "$GITHUB_ENV"
