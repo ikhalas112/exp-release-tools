@@ -13,7 +13,11 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.75
+          # MSRV bumped to 1.91: the AWS SDK family (aws-smithy-* 1.x) and the
+          # transitive `time`/`time-core` crates require edition2024 (Rust >= 1.85)
+          # and declare rust-version 1.91.1. 1.75 can no longer parse the lock.
+          toolchain: "1.91"
+          components: clippy
 
       - name: cargo test
         run: cargo test --locked

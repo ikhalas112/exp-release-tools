@@ -158,7 +158,7 @@ pub async fn sync(
     for handle in handles {
         handle.await??;
         uploaded += 1;
-        if uploaded % 10 == 0 || uploaded == 1 {
+        if uploaded.is_multiple_of(10) || uploaded == 1 {
             print!("\r   📤 {uploaded}");
         }
     }
