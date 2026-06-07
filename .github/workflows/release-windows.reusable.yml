@@ -8,14 +8,18 @@
 #
 #   jobs:
 #     release:
-#       uses: maxion-game/maxgame-release-tools/.github/workflows/release-windows.reusable.yml@v0.3.0
+#       uses: maxion-game/maxgame-release-tools/.github/workflows/release-windows.reusable.yml@v0.5.0
 #       with:
-#         config: release.config.json
-#         tools_version: v0.3.0
+#         tools_version: v0.5.0
+#         game_name: my-game            # R2 key prefix → {game}/releases/...
+#         config_json: |                # entire release config, inline (no file in game repo)
+#           { "r2": { "bucket": "mybucket" },
+#             "protector": { "outputExe": "MyGame.exe" } }
 #       secrets:
 #         TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}  # if tools repo is private
 #
-# R2 + MAXION credentials are embedded in the prebuilt binary (tools repo build).
+# The game repo needs no checked-in release.config.json — config_json is written
+# to disk in CI. R2 + MAXION credentials are embedded in the prebuilt binary.
 # ──────────────────────────────────────────────────────────────────────────────
 name: release-windows (reusable)
 
@@ -23,9 +27,21 @@ on:
   workflow_call:
     inputs:
       config:
-        description: Path to release.config.json in the game repo
+        description: Path the generated release config is written to (workspace-relative)
         type: string
         default: release.config.json
+      config_json:
+        description: >-
+          Full release config as JSON (the release.config.json contents). Written
+          to disk in CI so the game repo needs no checked-in config file.
+        type: string
+        required: true
+      game_name:
+        description: >-
+          Game name → R2 key prefix ({game}/releases/...). Overrides any "game"
+          in config_json via the GAME_NAME env var.
+        type: string
+        default: ""
       tools_repo:
         description: GitHub owner/repo for maxgame-release-tools
         type: string
@@ -52,11 +68,22 @@ jobs:
     env:
       CONFIG: ${{ inputs.config }}
       FORCE_CHANNEL: ${{ inputs.force_channel }}
+      GAME_NAME: ${{ inputs.game_name }}
       TOOLS_REPO: ${{ inputs.tools_repo }}
       TOOLS_VERSION: ${{ inputs.tools_version }}
     steps:
       - name: Checkout caller repo
         uses: actions/checkout@v4
+
+      - name: Write release config
+        shell: pwsh
+        env:
+          CONFIG_JSON: ${{ inputs.config_json }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          Set-Content -Path $env:CONFIG -Value $env:CONFIG_JSON -NoNewline
+          Write-Host "Wrote $env:CONFIG ($($env:CONFIG_JSON.Length) bytes)"
 
       - name: Download prebuilt tools bundle
         shell: pwsh

@@ -94,6 +94,10 @@ fn default_mock_fixture() -> String {
 #[derive(Debug, Clone, Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
 pub struct RawConfig {
+    /// Optional in the file: the game name normally comes from the GAME_NAME env
+    /// var (set by the reusable workflow's `game_name` input), keeping the
+    /// inline config_json focused on build/deploy settings only.
+    #[serde(default)]
     pub game: String,
     #[serde(default = "default_source")]
     pub source: String,
@@ -353,6 +357,19 @@ mod tests {
         std::fs::write(&path, r#"{ "game": "test", "r2": { "bucket": "b" } }"#).unwrap();
         let cfg = load_config(Some(&path)).unwrap();
         assert!(cfg.macos.is_none());
+    }
+
+    #[test]
+    fn missing_game_without_env_errors() {
+        // game may legitimately come from GAME_NAME; only assert the file-only path.
+        if std::env::var("GAME_NAME").is_ok() {
+            return;
+        }
+        let dir = TempDir::new().unwrap();
+        let path = dir.path().join("release.config.json");
+        std::fs::write(&path, r#"{ "r2": { "bucket": "b" } }"#).unwrap();
+        let err = load_config(Some(&path)).unwrap_err();
+        assert!(format!("{err:#}").contains("game name is required"));
     }
 
     #[test]
