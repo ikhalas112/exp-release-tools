@@ -31,8 +31,17 @@ pub async fn update_channel(
             Some(serde_json::from_slice::<serde_json::Value>(&data)?)
         }
         Err(e) => {
-            let msg = e.to_string();
-            if msg.contains("NoSuchKey") || msg.contains("404") {
+            // A missing channel manifest (first release) surfaces as a modeled
+            // NoSuchKey service error. The SDK's Display is just "service error",
+            // so string-matching on it never catches the 404 — inspect the
+            // modeled error instead, keeping the string check as a fallback.
+            let is_missing = e
+                .as_service_error()
+                .map(|se| se.is_no_such_key())
+                .unwrap_or(false)
+                || e.to_string().contains("NoSuchKey")
+                || e.to_string().contains("404");
+            if is_missing {
                 None
             } else {
                 return Err(e.into());
