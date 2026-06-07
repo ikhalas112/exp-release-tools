@@ -134,8 +134,9 @@ jobs:
       - name: Update channel manifest
         shell: pwsh
         run: |
-          $force = if ($env:FORCE_CHANNEL -eq 'true') { '--force' } else { '' }
-          & $env:ENGINE_BIN update-channel --config=$env:CONFIG --tag=$env:TAG --local=output/channel-manifest.json $force
+          $forceArgs = @()
+          if ($env:FORCE_CHANNEL -eq 'true') { $forceArgs += '--force' }
+          & $env:ENGINE_BIN update-channel --config=$env:CONFIG --tag=$env:TAG --local=output/channel-manifest.json @forceArgs
 
       - name: Verify CDN
         shell: pwsh
