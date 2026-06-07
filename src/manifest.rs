@@ -267,15 +267,18 @@ mod tests {
         assert_eq!(m["artifact"]["filename"], "GameClient-macos.zip");
         assert_eq!(
             m["urls"]["executable"],
-            "releases/v1.2.3-dev/macos/GameClient-macos.zip"
+            "mygame/releases/v1.2.3-dev/macos/GameClient-macos.zip"
         );
-        assert_eq!(m["urls"]["manifest"], "releases/v1.2.3-dev/macos/manifest.json");
+        assert_eq!(
+            m["urls"]["manifest"],
+            "mygame/releases/v1.2.3-dev/macos/manifest.json"
+        );
         let c: serde_json::Value =
             serde_json::from_str(&fs::read_to_string(channel).unwrap()).unwrap();
         assert_eq!(c["platform"], "macos");
         assert_eq!(
             c["urls"]["executable"],
-            "releases/v1.2.3-dev/macos/GameClient-macos.zip"
+            "mygame/releases/v1.2.3-dev/macos/GameClient-macos.zip"
         );
     }
 }

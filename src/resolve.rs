@@ -4,8 +4,8 @@ use regex::Regex;
 use serde::Serialize;
 use std::sync::OnceLock;
 
-/// Target platform for a release. Windows is the default and keeps all
-/// existing R2 keys/output names; macOS gets platform-suffixed keys.
+/// Target platform for a release. All R2 keys are scoped under `{game}/`;
+/// macOS gets platform-suffixed keys so it never collides with windows.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, clap::ValueEnum)]
 pub enum Platform {
     Windows,
@@ -46,6 +46,18 @@ pub struct ReleasePaths {
     pub releases: String,
     #[serde(rename = "channelKey")]
     pub channel_key: String,
+    /// Flat, append-only history: one manifest per tag, keyed by sanitized tag.
+    #[serde(rename = "manifestArchiveKey")]
+    pub manifest_archive_key: String,
+}
+
+/// Tag → safe flat filename for the `manifests/` archive: dots and dashes
+/// become underscores. e.g. `v0.1.0-dev` → `v0_1_0_dev`, `v1.2.3-dev.2` →
+/// `v1_2_3_dev_2`.
+pub fn sanitize_tag(tag: &str) -> String {
+    tag.chars()
+        .map(|c| if c == '.' || c == '-' { '_' } else { c })
+        .collect()
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -84,14 +96,18 @@ pub fn resolve_release(tag: &str, config: &Config, platform: Platform) -> Result
     let build_number = caps.get(3).map(|m| m.as_str().to_string());
     let (env, channel) = env_and_channel(suffix);
 
+    let game = &config.game;
+    let archive = sanitize_tag(tag);
     let paths = match platform {
         Platform::Windows => ReleasePaths {
-            releases: format!("releases/{tag}"),
-            channel_key: format!("channels/{channel}/manifest.json"),
+            releases: format!("{game}/releases/{tag}"),
+            channel_key: format!("{game}/channels/{channel}/manifest.json"),
+            manifest_archive_key: format!("{game}/manifests/{archive}.json"),
         },
         Platform::Macos => ReleasePaths {
-            releases: format!("releases/{tag}/macos"),
-            channel_key: format!("channels/{channel}/manifest-macos.json"),
+            releases: format!("{game}/releases/{tag}/macos"),
+            channel_key: format!("{game}/channels/{channel}/manifest-macos.json"),
+            manifest_archive_key: format!("{game}/manifests/{archive}-macos.json"),
         },
     };
 
@@ -156,6 +172,7 @@ pub fn print_env(r: &ResolvedRelease, artifact_file: &str, version_inject_dir: &
         ("WORKSPACE_MODE", r.workspace_mode.as_str()),
         ("R2_RELEASES_PATH", r.paths.releases.as_str()),
         ("R2_CHANNEL_KEY", r.paths.channel_key.as_str()),
+        ("R2_MANIFEST_ARCHIVE_KEY", r.paths.manifest_archive_key.as_str()),
         ("BUILD_DIR", "build"),
         ("OUTPUT_DIR", "output"),
         ("OUTPUT_EXE", artifact_file),
@@ -213,8 +230,9 @@ mod tests {
         assert_eq!(r.channel, "prod");
         assert_eq!(r.version, "1.2.3");
         assert_eq!(r.platform, "windows");
-        assert_eq!(r.paths.releases, "releases/v1.2.3");
-        assert_eq!(r.paths.channel_key, "channels/prod/manifest.json");
+        assert_eq!(r.paths.releases, "snake/releases/v1.2.3");
+        assert_eq!(r.paths.channel_key, "snake/channels/prod/manifest.json");
+        assert_eq!(r.paths.manifest_archive_key, "snake/manifests/v1_2_3.json");
     }
 
     #[test]
@@ -243,7 +261,11 @@ mod tests {
         assert_eq!(r.env, "dev");
         assert_eq!(r.channel, "dev");
         assert_eq!(r.build_number.as_deref(), Some("2"));
-        assert_eq!(r.paths.releases, "releases/v1.2.3-dev.2");
+        assert_eq!(r.paths.releases, "snake/releases/v1.2.3-dev.2");
+        assert_eq!(
+            r.paths.manifest_archive_key,
+            "snake/manifests/v1_2_3_dev_2.json"
+        );
     }
 
     #[test]
@@ -261,8 +283,19 @@ mod tests {
     fn macos_paths() {
         let r = resolve_release("v1.2.3-dev", &test_config_macos(), Platform::Macos).unwrap();
         assert_eq!(r.platform, "macos");
-        assert_eq!(r.paths.releases, "releases/v1.2.3-dev/macos");
-        assert_eq!(r.paths.channel_key, "channels/dev/manifest-macos.json");
+        assert_eq!(r.paths.releases, "snake/releases/v1.2.3-dev/macos");
+        assert_eq!(r.paths.channel_key, "snake/channels/dev/manifest-macos.json");
+        assert_eq!(
+            r.paths.manifest_archive_key,
+            "snake/manifests/v1_2_3_dev-macos.json"
+        );
+    }
+
+    #[test]
+    fn sanitize_tag_replaces_dots_and_dashes() {
+        assert_eq!(sanitize_tag("v1.2.3"), "v1_2_3");
+        assert_eq!(sanitize_tag("v0.1.0-dev"), "v0_1_0_dev");
+        assert_eq!(sanitize_tag("v1.2.3-dev.2"), "v1_2_3_dev_2");
     }
 
     #[test]

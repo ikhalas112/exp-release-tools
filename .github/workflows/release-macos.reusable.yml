@@ -148,6 +148,11 @@ jobs:
         run: |
           "$ENGINE_BIN" sync output --dest="$R2_RELEASES_PATH" --config="$CONFIG"
 
+      - name: Archive version manifest (macos)
+        run: |
+          # append-only history copy at {game}/manifests/{tag}-macos.json
+          "$ENGINE_BIN" archive-manifest --config="$CONFIG" --tag="$TAG" --local=output/manifest.json --platform=macos
+
       - name: Update channel manifest (macos)
         run: |
           force=""

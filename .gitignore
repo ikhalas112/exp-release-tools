@@ -5,3 +5,4 @@
 /dist/
 /maxion-protector/target/
 .omc/
+.DS_Store

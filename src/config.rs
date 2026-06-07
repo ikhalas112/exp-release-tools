@@ -223,6 +223,29 @@ pub struct Config {
     pub config_path: PathBuf,
 }
 
+/// The game name is the top-level R2 key prefix (`{game}/releases/...`), so it
+/// must be path-safe: start alphanumeric, then only `[A-Za-z0-9._-]`. No
+/// slashes, spaces, or other characters that would mangle the key namespace.
+fn validate_game_name(game: &str) -> Result<()> {
+    if game.is_empty() {
+        bail!("game name is required (set config.game or the GAME_NAME env var)");
+    }
+    let valid = game.chars().enumerate().all(|(i, c)| {
+        if i == 0 {
+            c.is_ascii_alphanumeric()
+        } else {
+            c.is_ascii_alphanumeric() || matches!(c, '.' | '_' | '-')
+        }
+    });
+    if !valid {
+        bail!(
+            "invalid game name {game:?}: must start with a letter/digit and contain \
+             only [A-Za-z0-9._-] (it becomes the R2 key prefix)"
+        );
+    }
+    Ok(())
+}
+
 pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     let path = config_path
         .map(Path::to_path_buf)
@@ -235,9 +258,14 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     }
     let raw: RawConfig = serde_json::from_str(&fs::read_to_string(&abs)?)
         .with_context(|| format!("invalid JSON in {}", abs.display()))?;
-    if raw.game.is_empty() {
-        bail!("config.game is required");
-    }
+    // game name resolves runtime env → config (mirrors the R2 credential model),
+    // so CI/forks/tests can re-scope R2 keys without editing the checked-in config.
+    let game = std::env::var("GAME_NAME")
+        .ok()
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| raw.game.clone());
+    validate_game_name(&game)?;
     if raw.r2.bucket.is_empty() {
         bail!("config.r2.bucket is required");
     }
@@ -248,7 +276,7 @@ pub fn load_config(config_path: Option<&Path>) -> Result<Config> {
     }
 
     Ok(Config {
-        game: raw.game,
+        game,
         source: if raw.source.is_empty() {
             "client".into()
         } else {
@@ -325,6 +353,17 @@ mod tests {
         std::fs::write(&path, r#"{ "game": "test", "r2": { "bucket": "b" } }"#).unwrap();
         let cfg = load_config(Some(&path)).unwrap();
         assert!(cfg.macos.is_none());
+    }
+
+    #[test]
+    fn game_name_validation() {
+        assert!(validate_game_name("snake").is_ok());
+        assert!(validate_game_name("exp-window-game").is_ok());
+        assert!(validate_game_name("Game_2.0").is_ok());
+        assert!(validate_game_name("").is_err());
+        assert!(validate_game_name("bad/name").is_err());
+        assert!(validate_game_name("has space").is_err());
+        assert!(validate_game_name("-leadingdash").is_err());
     }
 
     #[test]

@@ -131,6 +131,12 @@ jobs:
           # exclude-prefix keeps the macOS pipeline's nested artifacts safe from mirror delete
           & $env:ENGINE_BIN sync output --dest=$env:R2_RELEASES_PATH --config=$env:CONFIG --exclude-prefix=macos/
 
+      - name: Archive version manifest
+        shell: pwsh
+        run: |
+          # append-only history copy at {game}/manifests/{tag}.json
+          & $env:ENGINE_BIN archive-manifest --config=$env:CONFIG --tag=$env:TAG --local=output/manifest.json
+
       - name: Update channel manifest
         shell: pwsh
         run: |

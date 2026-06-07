@@ -1,3 +1,4 @@
+mod archive;
 mod channel;
 mod config;
 mod inject;
@@ -116,6 +117,17 @@ enum Commands {
         local: PathBuf,
         #[arg(long)]
         force: bool,
+        #[arg(long, value_enum, default_value_t = Platform::Windows)]
+        platform: Platform,
+    },
+    /// Archive the version manifest to {game}/manifests/{tag}.json (release history)
+    ArchiveManifest {
+        #[arg(long, default_value = "release.config.json")]
+        config: PathBuf,
+        #[arg(long)]
+        tag: String,
+        #[arg(long)]
+        local: PathBuf,
         #[arg(long, value_enum, default_value_t = Platform::Windows)]
         platform: Platform,
     },
@@ -242,6 +254,15 @@ async fn main() -> Result<()> {
         } => {
             let cfg = config::load_config(Some(&config))?;
             channel::update_channel(&cfg, &tag, &local, force, platform).await?;
+        }
+        Commands::ArchiveManifest {
+            config,
+            tag,
+            local,
+            platform,
+        } => {
+            let cfg = config::load_config(Some(&config))?;
+            archive::archive_manifest(&cfg, &tag, &local, platform).await?;
         }
         Commands::Verify {
             config,
