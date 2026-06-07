@@ -1,0 +1,111 @@
+# GitHub Actions Workflow for Benchmark Testing on Windows
+# Executes Phase 4 of the benchmark plan: Windows Testing
+
+name: Benchmark Tests
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main, develop ]
+  workflow_dispatch:
+    inputs:
+      scenario:
+        description: 'Benchmark scenario to run'
+        required: false
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - small
+          - medium
+          - large
+          - mixed
+      iterations:
+        description: 'Number of iterations per scenario'
+        required: false
+        default: '10'
+        type: string
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+  RUST_LOG: info
+
+jobs:
+  benchmark-windows:
+    name: Windows Benchmark Tests
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/registry
+          key: ${{ runner.os }}-cargo-registry-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo index
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/git
+          key: ${{ runner.os }}-cargo-index-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Cache cargo build
+        uses: actions/cache@v3
+        with:
+          path: target
+          key: ${{ runner.os }}-cargo-build-target-${{ hashFiles('**/Cargo.lock') }}
+
+      - name: Build all components
+        run: cargo build --release --bins --quiet
+
+      - name: Build hello-world example
+        run: cargo build --release --quiet --manifest-path examples/hello-world/Cargo.toml
+
+      - name: Run all benchmarks
+        shell: pwsh
+        run: |
+          $scenario = "${{ github.event.inputs.scenario }}"
+          $iterations = "${{ github.event.inputs.iterations }}"
+
+          if (-not $scenario) { $scenario = "all" }
+          if (-not $iterations) { $iterations = "10" }
+
+          pwsh scripts/windows/run_all_benchmarks.ps1 -Scenario $scenario -Iterations $iterations
+
+      - name: Analyze benchmark results
+        shell: pwsh
+        run: |
+          pwsh scripts/windows/analyze_benchmarks.ps1 --metrics-dir target/benchmarks --output-dir target/benchmarks
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v3
+        with:
+          name: benchmark-results-${{ github.sha }}
+          path: |
+            target/benchmarks/
+            target/e2e/hello_packed.exe
+          retention-days: 30
+
+      - name: Summary
+        shell: pwsh
+        run: |
+          Write-Host "====================================="
+          Write-Host "  Benchmark Workflow Complete"
+          Write-Host "====================================="
+          Write-Host ""
+          Write-Host "All benchmarks executed on Windows"
+          Write-Host "Performance metrics collected"
+          Write-Host "Comprehensive report generated"
+          Write-Host "Results uploaded as artifacts"
+          Write-Host ""
+          Write-Host "View artifacts in the Actions tab for detailed results."

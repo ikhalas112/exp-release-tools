@@ -1,0 +1,55 @@
+[package]
+name = "maxion-packer"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[[bin]]
+name = "pnp"
+path = "src/main.rs"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(stub_compiled)'] }
+
+[dependencies]
+# Core library
+maxion-core = { path = "../maxion-core" }
+
+# CLI
+clap.workspace = true
+indicatif.workspace = true
+
+# Error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Concurrency
+rayon.workspace = true
+
+# File system
+walkdir.workspace = true
+
+# PE manipulation
+goblin.workspace = true
+
+# PE injection
+maxion-injector = { path = "../maxion-injector" }
+
+# Hex encoding/decoding
+hex.workspace = true
+
+# Random key generation
+rand.workspace = true
+
+# Temporary files
+tempfile.workspace = true
+
+# Logging
+env_logger.workspace = true
+
+[features]
+default = ["phase2"]
+phase2 = ["maxion-injector/phase2"]

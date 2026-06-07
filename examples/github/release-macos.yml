@@ -1,0 +1,22 @@
+# Example macOS caller (copy to .github/workflows/release.yml in a macOS game repo).
+# macOS: .app bundle packed into a single zip via `ditto` (runs on macos-latest, no protect).
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    uses: maxion-game/maxgame-release-tools/.github/workflows/release-macos.reusable.yml@v0.3.0
+    with:
+      config: release.config.json
+      tools_version: v0.3.0
+      # Optional: build the real .app instead of the mock fixture.
+      # Must produce build/<appBundle> (the appBundle from release.config.json).
+      # build_command: |
+      #   cargo install dioxus-cli --version 0.7.9 --locked || true
+      #   dx bundle --desktop --package my-desktop
+      #   rm -rf build && mkdir -p build
+      #   ditto target/dx/my-desktop/bundle/macos/macos/MyGame.app build/MyGame.app
+    secrets:
+      TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}

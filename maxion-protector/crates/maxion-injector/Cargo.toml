@@ -1,0 +1,43 @@
+[package]
+name = "maxion-injector"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+description = "PE injection module for Maxion Protector - embeds stub and encrypted assets into game executables"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/maxion/maxion-protector"
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(stub_compiled)'] }
+
+[features]
+default = []
+phase2 = []
+
+[dependencies]
+# Workspace dependencies
+anyhow.workspace = true
+log.workspace = true
+
+# Maxion dependencies
+maxion-core = { path = "../maxion-core" }
+
+# PE parsing and manipulation
+goblin.workspace = true
+
+# File operations
+memmap2 = "0.9"
+
+# Cryptographic utilities (for key storage)
+blake3 = "1.8"
+rand.workspace = true
+
+# Windows API (for import resolution in phase2)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_System_LibraryLoader",
+] }
+
+[dev-dependencies]
+tempfile.workspace = true

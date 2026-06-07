@@ -1,0 +1,7 @@
+/target/
+/.env
+/output/
+/build/
+/dist/
+/maxion-protector/target/
+.omc/

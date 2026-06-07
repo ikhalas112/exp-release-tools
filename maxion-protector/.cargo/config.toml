@@ -1,0 +1,28 @@
+# Cargo configuration for Maxion Protector
+# This file contains project-specific settings including Miri configuration
+
+[build]
+# Use nightly toolchain for Miri testing
+target-dir = "target"
+
+# Miri-specific configuration for undefined behavior detection
+# These settings are used when running `cargo miri test`
+[env]
+# Configure Miri flags for maximum UB detection
+# Note: We don't use -Zmiri-strict-provenance because rayon/crossbeam use integer-to-pointer casts
+MIRIFLAGS = "-Zmiri-symbolic-alignment-check -Zmiri-isolation-error=warn -Zmiri-backtrace=1"
+
+# Explanation of MIRIFLAGS:
+# -Zmiri-symbolic-alignment-check : Makes alignment checks more strict (catches accidental alignment)
+# -Zmiri-isolation-error=warn     : Continue execution with warnings instead of aborting on unsupported operations
+# -Zmiri-backtrace=1              : Show backtraces for errors (1 = default/pruned, full = verbose)
+# 
+# Note: We intentionally don't use -Zmiri-strict-provenance because:
+# - rayon/crossbeam dependencies use integer-to-pointer casts
+# - These are in external libraries, not our code
+# - We want to focus on detecting UB in maxion-core code
+
+[term]
+# Enable colored output for better readability
+verbose = false
+color = "auto"

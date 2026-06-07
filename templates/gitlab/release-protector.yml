@@ -1,0 +1,135 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# maxgame-release-tools — GitLab CI template (single-exe / protector, Windows).
+#
+# Per-game repo (include-only — no submodule):
+#
+#   include:
+#     - project: 'maxion-game/maxgame-release-tools'
+#       ref: 'v0.2.0'
+#       file: '/templates/gitlab/release-protector.yml'
+#   stages: [release]
+#   variables:
+#     TOOLS_VERSION: "v0.2.0"
+#   release:
+#     extends: .release-protector
+#
+# Optional CI variable for private tools repo: TOOLS_DOWNLOAD_TOKEN
+# Requires a Windows shell runner (tags: [windows]).
+#
+# macOS (optional, best-effort): extend .release-protector-macos — requires a
+# macOS shell runner (tags: [macos]) and a "macos" block in release.config.json:
+#
+#   release-macos:
+#     extends: .release-protector-macos
+# ──────────────────────────────────────────────────────────────────────────────
+
+variables:
+  TOOLS_REPO: "maxion-game/maxgame-release-tools"
+  TOOLS_VERSION: "v0.2.0"
+  RELEASE_CONFIG: "release.config.json"
+  FORCE_CHANNEL: "false"
+
+.release-protector:
+  tags:
+    - windows
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-(dev|sit|uat|staging)(\.\d+)?)?$/
+  resource_group: "$CI_PROJECT_PATH"
+  before_script:
+    - |
+      $ErrorActionPreference = 'Stop'
+      $zip = Join-Path $env:TEMP 'maxgame-release-windows-x86_64.zip'
+      $shaFile = Join-Path $env:TEMP 'maxgame-release-windows-x86_64.zip.sha256'
+      $base = "https://github.com/$env:TOOLS_REPO/releases/download/$env:TOOLS_VERSION"
+      $headers = @{ Accept = 'application/octet-stream' }
+      if ($env:TOOLS_DOWNLOAD_TOKEN) {
+        $headers['Authorization'] = "Bearer $env:TOOLS_DOWNLOAD_TOKEN"
+      }
+      Invoke-WebRequest -Uri "$base/maxgame-release-windows-x86_64.zip" -Headers $headers -OutFile $zip
+      Invoke-WebRequest -Uri "$base/maxgame-release-windows-x86_64.zip.sha256" -Headers $headers -OutFile $shaFile
+      $expected = (Get-Content $shaFile -Raw).Trim().ToLower()
+      $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+      if ($expected -ne $actual) { throw "SHA256 mismatch: expected $expected got $actual" }
+      $binDir = Join-Path $env:TEMP 'maxgame-release-tools'
+      New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+      Expand-Archive -Path $zip -DestinationPath $binDir -Force
+      $env:TOOLS_BIN_DIR = $binDir
+      $env:ENGINE_BIN = Join-Path $binDir 'maxgame-release.exe'
+    - |
+      $envLines = & $env:ENGINE_BIN resolve $env:CI_COMMIT_TAG --config=$env:RELEASE_CONFIG --format=env
+      foreach ($line in $envLines) {
+        if ($line -match '^export (\w+)="(.*)"$') {
+          $name = $Matches[1]
+          $value = $Matches[2] -replace '\\"', '"'
+          Set-Item -Path "env:$name" -Value $value
+        }
+      }
+      $env:TAG = $env:CI_COMMIT_TAG
+      Write-Host "Game=$env:GAME Tag=$env:TAG Channel=$env:CHANNEL"
+  script:
+    - '& $env:ENGINE_BIN mock-build --config=$env:RELEASE_CONFIG --output=build'
+    - '& $env:ENGINE_BIN inject-version --source=build/assets --tag=$env:TAG --channel=$env:CHANNEL'
+    - '& $env:ENGINE_BIN protect --config=$env:RELEASE_CONFIG --tag=$env:TAG --build-dir=build --output-dir=output'
+    - '& $env:ENGINE_BIN manifest --config=$env:RELEASE_CONFIG --tag=$env:TAG --artifact=$env:ARTIFACT_PATH --output-dir=output'
+    - '& $env:ENGINE_BIN sync output --dest=$env:R2_RELEASES_PATH --config=$env:RELEASE_CONFIG --exclude-prefix=macos/'
+    - |
+      $force = if ($env:FORCE_CHANNEL -eq 'true') { '--force' } else { '' }
+      & $env:ENGINE_BIN update-channel --config=$env:RELEASE_CONFIG --tag=$env:TAG --local=output/channel-manifest.json $force
+    - '& $env:ENGINE_BIN verify --config=$env:RELEASE_CONFIG --tag=$env:TAG'
+  artifacts:
+    name: "$GAME-$CI_COMMIT_TAG"
+    paths:
+      - output/manifest.json
+      - output/channel-manifest.json
+    expire_in: 30 days
+
+# macOS lane: package .app → single zip with ditto (no protect step).
+# Best-effort template — requires a macOS shell runner (tags: [macos]).
+.release-protector-macos:
+  tags:
+    - macos
+  stage: release
+  rules:
+    - if: $CI_COMMIT_TAG =~ /^v\d+\.\d+\.\d+(-(dev|sit|uat|staging)(\.\d+)?)?$/
+  resource_group: "$CI_PROJECT_PATH-macos"
+  before_script:
+    - |
+      set -euo pipefail
+      tarball="${TMPDIR:-/tmp}/maxgame-release-macos-aarch64.tar.gz"
+      sha_file="$tarball.sha256"
+      base="https://github.com/$TOOLS_REPO/releases/download/$TOOLS_VERSION"
+      auth=()
+      if [ -n "${TOOLS_DOWNLOAD_TOKEN:-}" ]; then
+        auth=(-H "Authorization: Bearer $TOOLS_DOWNLOAD_TOKEN")
+      fi
+      curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" -o "$tarball" "$base/maxgame-release-macos-aarch64.tar.gz"
+      curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" -o "$sha_file" "$base/maxgame-release-macos-aarch64.tar.gz.sha256"
+      expected="$(tr -d '[:space:]' < "$sha_file")"
+      actual="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+      [ "$expected" = "$actual" ] || { echo "SHA256 mismatch: expected $expected got $actual" >&2; exit 1; }
+      bin_dir="${TMPDIR:-/tmp}/maxgame-release-tools"
+      mkdir -p "$bin_dir"
+      tar -xzf "$tarball" -C "$bin_dir"
+      chmod +x "$bin_dir/maxgame-release"
+      export ENGINE_BIN="$bin_dir/maxgame-release"
+      eval "$("$ENGINE_BIN" resolve "$CI_COMMIT_TAG" --config="$RELEASE_CONFIG" --format=env --platform=macos)"
+      export TAG="$CI_COMMIT_TAG"
+      echo "Game=$GAME Tag=$TAG Channel=$CHANNEL Platform=$PLATFORM"
+  script:
+    - '"$ENGINE_BIN" mock-build --config="$RELEASE_CONFIG" --output=build --platform=macos'
+    - '"$ENGINE_BIN" inject-version --source="$VERSION_INJECT_DIR" --tag="$TAG" --channel="$CHANNEL"'
+    - '"$ENGINE_BIN" package --config="$RELEASE_CONFIG" --build-dir=build --output-dir=output'
+    - '"$ENGINE_BIN" manifest --config="$RELEASE_CONFIG" --tag="$TAG" --artifact="$ARTIFACT_PATH" --output-dir=output --platform=macos'
+    - '"$ENGINE_BIN" sync output --dest="$R2_RELEASES_PATH" --config="$RELEASE_CONFIG"'
+    - |
+      force=""
+      if [ "$FORCE_CHANNEL" = "true" ]; then force="--force"; fi
+      "$ENGINE_BIN" update-channel --config="$RELEASE_CONFIG" --tag="$TAG" --local=output/channel-manifest.json --platform=macos $force
+    - '"$ENGINE_BIN" verify --config="$RELEASE_CONFIG" --tag="$TAG" --platform=macos'
+  artifacts:
+    name: "$GAME-$CI_COMMIT_TAG-macos"
+    paths:
+      - output/manifest.json
+      - output/channel-manifest.json
+    expire_in: 30 days

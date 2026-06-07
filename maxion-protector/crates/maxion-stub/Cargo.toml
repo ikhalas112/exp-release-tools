@@ -1,0 +1,60 @@
+[package]
+name = "maxion-stub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core library
+maxion-core = { path = "../maxion-core" }
+
+# PE parsing
+goblin = { workspace = true, features = ["pe32"] }
+
+# Cryptographic utilities
+blake3 = { workspace = true }
+
+# Error handling (no_std compatible)
+anyhow = { workspace = true }
+
+# Logging (no_std compatible)
+log = { version = "0.4" }
+
+# Serialization (no_std compatible)
+serde = { workspace = true, features = ["alloc", "derive"] }
+bincode = { workspace = true }
+
+# Windows-specific APIs
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Threading",
+] }
+
+[target.'cfg(all(windows, target_arch = "x86_64"))'.dependencies]
+retour = "0.3"
+
+# Profiling support
+maxion-profiler = { path = "../maxion-profiler", optional = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+
+[features]
+default = ["std"]
+std = []
+hooks = []
+profiling = ["maxion-profiler", "std"]
+
+[lib]
+crate-type = ["cdylib"]

@@ -1,0 +1,32 @@
+{
+  "game": "mock-game",
+  "distribution": "single_exe",
+  "source": "build",
+  "prepare": "",
+  "build": {
+    "dir": "build",
+    "mockFixture": "fixtures/mock-game"
+  },
+  "protector": {
+    "inputExe": "game.exe",
+    "assetsDir": "assets",
+    "outputExe": "GameClient.exe",
+    "phase2": true,
+    "compressionLevel": 6,
+    "chunkSize": 65536,
+    "enableProtectedAll": true
+  },
+  "r2": {
+    "bucket": "mockgameclient"
+  },
+  "launcher": {
+    "min_version": "1.0.0"
+  },
+  "concurrency": {
+    "upload": 16
+  },
+  "cdnBaseUrl": "",
+  "runner": {
+    "workspaceMode": "fresh"
+  }
+}

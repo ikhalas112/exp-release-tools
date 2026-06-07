@@ -1,0 +1,64 @@
+[package]
+name = "maxion-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+# Core error handling
+anyhow.workspace = true
+thiserror.workspace = true
+
+# Encryption (battle-tested)
+orion.workspace = true
+blake3.workspace = true
+argon2.workspace = true
+
+# Compression
+brotli.workspace = true
+
+# PE manipulation
+goblin.workspace = true
+
+# File system
+walkdir.workspace = true
+
+# Concurrency
+rayon.workspace = true
+
+# Random key generation
+rand.workspace = true
+
+# Serialization
+serde.workspace = true
+bincode.workspace = true
+
+# Logging
+log = "0.4"
+
+# Synchronization primitives
+once_cell.workspace = true
+
+# Memory mapping
+memmap2.workspace = true
+
+# Hardware ID generation
+machineid-rs = "1.2.4"
+uuid.workspace = true
+
+# Procedural macros for auto-protection
+maxion-macros = { path = "../maxion-macros" }
+
+[features]
+# Enable SIMD optimizations for crypto and compression operations
+# This enables runtime CPU feature detection and uses optimized code paths
+default = []
+simd = []
+
+[dev-dependencies]
+# Testing utilities
+tempfile.workspace = true
+serial_test = "3"

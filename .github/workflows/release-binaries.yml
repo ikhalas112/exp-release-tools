@@ -1,0 +1,135 @@
+# Build and publish prebuilt bundles:
+#   - Windows: maxgame-release.exe + pnp.exe + maxion_stub.dll (protect support)
+#   - macOS:   maxgame-release only (package/ditto path, no protector)
+# Trigger: push tag v* on the tools repo.
+# Secrets (tools repo only): R2_ACCESS_KEY_ID, R2_SECRET_ACCESS_KEY, R2_BUCKET_NAME,
+#   R2_ENDPOINT, MAXION_BUILD_SECRET
+name: release-binaries
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      MAXION_BUILD_SECRET: ${{ secrets.MAXION_BUILD_SECRET }}
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_TIMEOUT: "600"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            maxion-protector
+            .
+
+      - name: Build maxion-protector
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $mp = 'maxion-protector/Cargo.toml'
+          cargo fetch --locked --manifest-path $mp
+          cargo build --release --locked -p maxion-stub --manifest-path $mp
+          cargo build --release --locked -p maxion-packer --manifest-path $mp
+
+      - name: Build maxgame-release (embedded credentials)
+        shell: pwsh
+        run: cargo build --release --locked
+
+      - name: Assemble bundle
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $bundle = 'dist/maxgame-release-windows-x86_64'
+          New-Item -ItemType Directory -Force -Path $bundle | Out-Null
+          Copy-Item target/release/maxgame-release.exe $bundle/
+          Copy-Item maxion-protector/target/release/pnp.exe $bundle/
+          Copy-Item maxion-protector/target/release/maxion_stub.dll $bundle/
+          Compress-Archive -Path "$bundle/*" -DestinationPath dist/maxgame-release-windows-x86_64.zip -Force
+          $hash = (Get-FileHash dist/maxgame-release-windows-x86_64.zip -Algorithm SHA256).Hash.ToLower()
+          Set-Content -NoNewline -Path dist/maxgame-release-windows-x86_64.zip.sha256 -Value $hash
+
+      - name: Upload GitHub Release assets
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $tag = $env:GITHUB_REF_NAME
+          gh release create $tag `
+            --title $tag `
+            --notes "Prebuilt bundles for game CI (embedded R2 + MAXION credentials)." `
+            dist/maxgame-release-windows-x86_64.zip `
+            dist/maxgame-release-windows-x86_64.zip.sha256 `
+            2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release upload $tag `
+              dist/maxgame-release-windows-x86_64.zip `
+              dist/maxgame-release-windows-x86_64.zip.sha256 `
+              --clobber
+          }
+
+  # macOS bundle: engine only (protect is Windows-only; macOS uses package/ditto).
+  # needs build-windows so `gh release create` has already run (avoids race).
+  build-macos:
+    runs-on: macos-latest
+    needs: build-windows
+    env:
+      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+      R2_BUCKET_NAME: ${{ secrets.R2_BUCKET_NAME }}
+      R2_ENDPOINT: ${{ secrets.R2_ENDPOINT }}
+      MAXION_BUILD_SECRET: ${{ secrets.MAXION_BUILD_SECRET }}
+      CARGO_NET_RETRY: "10"
+      CARGO_HTTP_TIMEOUT: "600"
+      CARGO_NET_GIT_FETCH_WITH_CLI: "true"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+
+      - name: Build maxgame-release (embedded credentials)
+        run: cargo build --release --locked
+
+      - name: Assemble bundle
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          tar -czf dist/maxgame-release-macos-aarch64.tar.gz \
+            -C target/release maxgame-release
+          shasum -a 256 dist/maxgame-release-macos-aarch64.tar.gz \
+            | awk '{print $1}' | tr -d '\n' \
+            > dist/maxgame-release-macos-aarch64.tar.gz.sha256
+
+      - name: Upload GitHub Release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh release upload "$GITHUB_REF_NAME" \
+            dist/maxgame-release-macos-aarch64.tar.gz \
+            dist/maxgame-release-macos-aarch64.tar.gz.sha256 \
+            --clobber

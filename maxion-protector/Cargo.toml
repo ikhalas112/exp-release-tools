@@ -1,0 +1,154 @@
+[workspace]
+members = ["crates/maxion-core", "crates/maxion-packer", "crates/maxion-stub", "crates/maxion-injector", "crates/maxion-profiler", "crates/maxion-loader-stub", "crates/maxion-macros", "crates/maxion-gui"]
+resolver = "2"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Maxion Team"]
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/maxion-game/maxion-protector"
+
+# Root package for integration tests
+[package]
+name = "maxion-protector"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+goblin.workspace = true
+chrono.workspace = true
+rand.workspace = true
+maxion-core = { path = "crates/maxion-core" }
+
+[[bin]]
+name = "phase5_benchmark_main"
+path = "tests/phase5_benchmarks/bin/phase5_benchmark_main.rs"
+
+[[bin]]
+name = "trap_benchmark"
+path = "tests/phase6_benchmarks/bin/trap_benchmark.rs"
+
+[[bin]]
+name = "trap_optimized_benchmark"
+path = "tests/phase6_benchmarks/optimized/trap_optimized_benchmark.rs"
+
+[dev-dependencies]
+maxion-core = { path = "crates/maxion-core" }
+maxion-packer = { path = "crates/maxion-packer" }
+maxion-injector = { path = "crates/maxion-injector", features = ["phase2"] }
+maxion-stub = { path = "crates/maxion-stub" }
+tempfile.workspace = true
+walkdir.workspace = true
+anyhow.workspace = true
+goblin.workspace = true
+serial_test = "3"
+
+# Random number generation for benchmarking
+rand.workspace = true
+
+
+
+
+
+[workspace.dependencies]
+# Core dependencies shared across crates
+anyhow = { version = "1.0", default-features = true }
+thiserror = "2.0"
+
+# Encryption (battle-tested)
+orion = "0.17"
+blake3 = { version = "1.8", default-features = true }
+argon2 = "0.5"
+
+# Compression
+brotli = "8.0"
+
+# PE manipulation
+goblin = { version = "0.10.4", default-features = true, features = ["pe32"] }
+
+# CLI
+clap = { version = "4.5", features = ["derive"] }
+indicatif = "0.18"
+
+# File system
+walkdir = "2.5"
+
+# Testing utilities
+tempfile = "3.24"
+
+# Concurrency
+rayon = "1.10"
+
+# Serialization
+serde = { version = "1.0", default-features = true, features = ["derive"] }
+bincode = { version = "1.3", default-features = true }
+
+# Random key generation
+rand = "0.8"
+
+# Hex encoding/decoding
+hex = "0.4"
+
+# Memory mapping
+memmap2 = "0.9"
+
+# Time formatting
+chrono = "0.4"
+
+# Logging
+log = "0.4"
+env_logger = "0.11"
+
+# Synchronization primitives
+once_cell = "1.21"
+
+# UUID generation
+uuid = { version = "1.10", features = ["v7"] }
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+opt-level = "z"
+lto = false
+codegen-units = 1
+strip = true
+panic = "abort"
+
+# SIMD support for optimized builds
+[features]
+simd = []
+phase2 = []
+
+# Optimized for performance with SIMD support
+[profile.opt]
+inherits = "release"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "debuginfo"
+
+# Maximum optimization (AVX-512)
+[profile.max-opt]
+inherits = "opt"
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = "none"
+
+# Optimized for stub binary size
+[profile.stub]
+inherits = "release"
+opt-level = "z"
+lto = false
+codegen-units = 1
+strip = "symbols"
+panic = "abort"

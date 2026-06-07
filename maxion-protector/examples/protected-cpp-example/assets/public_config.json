@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "game_title": "Maxion Test Game",
+  "default_language": "en",
+  "max_fps": 60,
+  "debug_mode": false
+}

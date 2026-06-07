@@ -1,0 +1,168 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# maxgame-release-tools — macOS release pipeline (.app → single zip via ditto).
+#
+# macOS-only. Runs on macos-latest. No protect step (maxion-protector is PE-only);
+# the .app bundle is packed with `ditto -c -k`. Windows lives in a separate
+# pipeline: release-windows.reusable.yml.
+#
+# Called by a per-game repo (no submodule — downloads prebuilt binary):
+#
+#   jobs:
+#     release:
+#       uses: maxion-game/maxgame-release-tools/.github/workflows/release-macos.reusable.yml@v0.3.0
+#       with:
+#         config: release.config.json
+#         tools_version: v0.3.0
+#         # Optional: build the real .app instead of copying the mock fixture.
+#         # Must produce build/<appBundle> (the appBundle from release.config.json).
+#         build_command: |
+#           cargo install dioxus-cli --version 0.7.9 --locked || true
+#           dx bundle --desktop --package snake-desktop
+#           rm -rf build && mkdir -p build
+#           ditto target/dx/snake-desktop/bundle/macos/macos/SnakeDesktop.app build/SnakeDesktop.app
+#       secrets:
+#         TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}  # if tools repo is private
+#
+# R2 + MAXION credentials are embedded in the prebuilt binary (tools repo build).
+# macOS release keys are nested under releases/{tag}/macos so they never collide
+# with the Windows pipeline's keys at releases/{tag}.
+# ──────────────────────────────────────────────────────────────────────────────
+name: release-macos (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path to release.config.json in the game repo
+        type: string
+        default: release.config.json
+      tools_repo:
+        description: GitHub owner/repo for maxgame-release-tools
+        type: string
+        default: maxion-game/maxgame-release-tools
+      tools_version:
+        description: Tools release tag (must match prebuilt bundle on GitHub Releases)
+        type: string
+        required: true
+      force_channel:
+        description: Move channel pointer even if version is older (rollback)
+        type: boolean
+        default: false
+      build_command:
+        description: >-
+          Optional shell command to build the real .app into build/<appBundle>.
+          When empty, the mock fixture is copied via `mock-build --platform=macos`.
+        type: string
+        default: ""
+    secrets:
+      TOOLS_DOWNLOAD_TOKEN:
+        description: PAT to download release assets from a private tools repo
+        required: false
+
+jobs:
+  release:
+    runs-on: macos-latest
+    concurrency:
+      group: release-${{ github.repository }}-macos
+      cancel-in-progress: false
+    env:
+      CONFIG: ${{ inputs.config }}
+      FORCE_CHANNEL: ${{ inputs.force_channel }}
+      TOOLS_REPO: ${{ inputs.tools_repo }}
+      TOOLS_VERSION: ${{ inputs.tools_version }}
+      BUILD_COMMAND: ${{ inputs.build_command }}
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      - name: Download prebuilt tools bundle (macOS)
+        env:
+          TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}
+        run: |
+          set -euo pipefail
+          tarball="$RUNNER_TEMP/maxgame-release-macos-aarch64.tar.gz"
+          sha_file="$tarball.sha256"
+          base="https://github.com/$TOOLS_REPO/releases/download/$TOOLS_VERSION"
+          auth=()
+          if [ -n "${TOOLS_DOWNLOAD_TOKEN:-}" ]; then
+            auth=(-H "Authorization: Bearer $TOOLS_DOWNLOAD_TOKEN")
+          fi
+          curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" \
+            -o "$tarball" "$base/maxgame-release-macos-aarch64.tar.gz"
+          curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" \
+            -o "$sha_file" "$base/maxgame-release-macos-aarch64.tar.gz.sha256"
+          expected="$(tr -d '[:space:]' < "$sha_file")"
+          actual="$(shasum -a 256 "$tarball" | awk '{print $1}')"
+          if [ "$expected" != "$actual" ]; then
+            echo "SHA256 mismatch: expected $expected got $actual" >&2
+            exit 1
+          fi
+          bin_dir="$RUNNER_TEMP/maxgame-release-tools"
+          mkdir -p "$bin_dir"
+          tar -xzf "$tarball" -C "$bin_dir"
+          chmod +x "$bin_dir/maxgame-release"
+          echo "TOOLS_BIN_DIR=$bin_dir" >> "$GITHUB_ENV"
+          echo "ENGINE_BIN=$bin_dir/maxgame-release" >> "$GITHUB_ENV"
+
+      - name: Guard + resolve release (macos)
+        run: |
+          set -euo pipefail
+          if [ "$GITHUB_REF_TYPE" != "tag" ]; then
+            echo "Not a tag push (ref_type=$GITHUB_REF_TYPE)" >&2
+            exit 1
+          fi
+          TAG="$GITHUB_REF_NAME"
+          "$ENGINE_BIN" resolve "$TAG" --config="$CONFIG" --format=env --platform=macos \
+            | while IFS= read -r line; do
+                if [[ "$line" =~ ^export\ ([A-Z_]+)=\"(.*)\"$ ]]; then
+                  name="${BASH_REMATCH[1]}"
+                  value="${BASH_REMATCH[2]//\\\"/\"}"
+                  echo "${name}=${value}" >> "$GITHUB_ENV"
+                fi
+              done
+          echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+      - name: Build .app (custom build_command or mock fixture)
+        run: |
+          set -euo pipefail
+          if [ -n "${BUILD_COMMAND:-}" ]; then
+            echo "Running custom build_command..."
+            eval "$BUILD_COMMAND"
+          else
+            "$ENGINE_BIN" mock-build --config="$CONFIG" --output=build --platform=macos
+          fi
+
+      - name: Inject version.txt into app bundle
+        run: |
+          "$ENGINE_BIN" inject-version --source="$VERSION_INJECT_DIR" --tag="$TAG" --channel="$CHANNEL"
+
+      - name: Package (.app → single zip via ditto)
+        run: |
+          "$ENGINE_BIN" package --config="$CONFIG" --build-dir=build --output-dir=output
+
+      - name: Generate manifests (macos)
+        run: |
+          "$ENGINE_BIN" manifest --config="$CONFIG" --tag="$TAG" --artifact="$ARTIFACT_PATH" --output-dir=output --platform=macos
+
+      - name: Deploy to R2
+        run: |
+          "$ENGINE_BIN" sync output --dest="$R2_RELEASES_PATH" --config="$CONFIG"
+
+      - name: Update channel manifest (macos)
+        run: |
+          force=""
+          if [ "$FORCE_CHANNEL" = "true" ]; then force="--force"; fi
+          "$ENGINE_BIN" update-channel --config="$CONFIG" --tag="$TAG" --local=output/channel-manifest.json --platform=macos $force
+
+      - name: Verify CDN (macos)
+        run: |
+          "$ENGINE_BIN" verify --config="$CONFIG" --tag="$TAG" --platform=macos
+
+      - name: Upload manifest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GAME }}-${{ env.TAG }}-manifests-macos
+          path: |
+            output/manifest.json
+            output/channel-manifest.json
+          if-no-files-found: error

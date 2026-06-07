@@ -1,0 +1,21 @@
+# Ignore all test artifacts by default
+*.maxion
+
+# Keep important reference test cases
+# Uncomment files you want to track in version control:
+# !001_basic_test.maxion
+# !999_final.maxion
+
+# Ignore temporary and experimental artifacts
+*experimental*
+*dev*
+*temp*
+*tmp*
+
+# Ignore large test artifacts (>10MB)
+*.maxion
+*.maxion.large
+
+# Keep README and documentation
+!README.md
+!*.md

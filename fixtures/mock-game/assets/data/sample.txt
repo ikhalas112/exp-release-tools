@@ -1,0 +1,1 @@
+mock asset data for protector release pipeline

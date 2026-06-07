@@ -1,0 +1,14 @@
+[package]
+name = "maxion-loader-stub"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.75"
+authors = ["Maxion Team"]
+build = "build.rs"
+
+[lib]
+name = "maxion_loader_stub"
+crate-type = ["cdylib"]
+
+# No dependencies - we use raw Windows API bindings and PEB walking
+[dependencies]

@@ -1,0 +1,26 @@
+target
+
+# Build directories
+examples/*/build/
+
+# Test artifacts
+test_assets/*.exe
+test_assets/*.dll
+
+# Benchmark results
+benchmark_results/
+scripts/benchmark_results/
+
+# Output files
+*.output.txt
+crates/*/output.txt
+
+# Temporary PowerShell conversions
+*_ascii.ps1
+
+# Junk and temporary files
+junk/
+nul
+test_inject.rs
+
+maxion_*

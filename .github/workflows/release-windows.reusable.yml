@@ -1,0 +1,152 @@
+# ──────────────────────────────────────────────────────────────────────────────
+# maxgame-release-tools — Windows release pipeline (single-exe / protector).
+#
+# Windows-only. maxion-protector PE injection requires windows-latest.
+# macOS lives in a separate pipeline: release-macos.reusable.yml.
+#
+# Called by a per-game repo (no submodule — downloads prebuilt binary):
+#
+#   jobs:
+#     release:
+#       uses: maxion-game/maxgame-release-tools/.github/workflows/release-windows.reusable.yml@v0.3.0
+#       with:
+#         config: release.config.json
+#         tools_version: v0.3.0
+#       secrets:
+#         TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}  # if tools repo is private
+#
+# R2 + MAXION credentials are embedded in the prebuilt binary (tools repo build).
+# ──────────────────────────────────────────────────────────────────────────────
+name: release-windows (reusable)
+
+on:
+  workflow_call:
+    inputs:
+      config:
+        description: Path to release.config.json in the game repo
+        type: string
+        default: release.config.json
+      tools_repo:
+        description: GitHub owner/repo for maxgame-release-tools
+        type: string
+        default: maxion-game/maxgame-release-tools
+      tools_version:
+        description: Tools release tag (must match prebuilt bundle on GitHub Releases)
+        type: string
+        required: true
+      force_channel:
+        description: Move channel pointer even if version is older (rollback)
+        type: boolean
+        default: false
+    secrets:
+      TOOLS_DOWNLOAD_TOKEN:
+        description: PAT to download release assets from a private tools repo
+        required: false
+
+jobs:
+  release:
+    runs-on: windows-latest
+    concurrency:
+      group: release-${{ github.repository }}-windows
+      cancel-in-progress: false
+    env:
+      CONFIG: ${{ inputs.config }}
+      FORCE_CHANNEL: ${{ inputs.force_channel }}
+      TOOLS_REPO: ${{ inputs.tools_repo }}
+      TOOLS_VERSION: ${{ inputs.tools_version }}
+    steps:
+      - name: Checkout caller repo
+        uses: actions/checkout@v4
+
+      - name: Download prebuilt tools bundle
+        shell: pwsh
+        env:
+          TOOLS_DOWNLOAD_TOKEN: ${{ secrets.TOOLS_DOWNLOAD_TOKEN }}
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'maxgame-release-windows-x86_64.zip'
+          $shaFile = Join-Path $env:RUNNER_TEMP 'maxgame-release-windows-x86_64.zip.sha256'
+          $base = "https://github.com/$env:TOOLS_REPO/releases/download/$env:TOOLS_VERSION"
+          $headers = @{ Accept = 'application/octet-stream' }
+          if ($env:TOOLS_DOWNLOAD_TOKEN) {
+            $headers['Authorization'] = "Bearer $env:TOOLS_DOWNLOAD_TOKEN"
+          }
+          Invoke-WebRequest -Uri "$base/maxgame-release-windows-x86_64.zip" -Headers $headers -OutFile $zip
+          Invoke-WebRequest -Uri "$base/maxgame-release-windows-x86_64.zip.sha256" -Headers $headers -OutFile $shaFile
+          $expected = (Get-Content $shaFile -Raw).Trim().ToLower()
+          $actual = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($expected -ne $actual) {
+            Write-Error "SHA256 mismatch: expected $expected got $actual"
+          }
+          $binDir = Join-Path $env:RUNNER_TEMP 'maxgame-release-tools'
+          New-Item -ItemType Directory -Force -Path $binDir | Out-Null
+          Expand-Archive -Path $zip -DestinationPath $binDir -Force
+          echo "TOOLS_BIN_DIR=$binDir" >> $env:GITHUB_ENV
+          echo "ENGINE_BIN=$(Join-Path $binDir 'maxgame-release.exe')" >> $env:GITHUB_ENV
+
+      - name: Guard + resolve release
+        shell: pwsh
+        run: |
+          Set-StrictMode -Version Latest
+          $ErrorActionPreference = 'Stop'
+          if ($env:GITHUB_REF_TYPE -ne 'tag') {
+            Write-Error "Not a tag push (ref_type=$env:GITHUB_REF_TYPE)"
+          }
+          $TAG = $env:GITHUB_REF_NAME
+          $envLines = & $env:ENGINE_BIN resolve $TAG --config=$env:CONFIG --format=env
+          foreach ($line in $envLines) {
+            if ($line -match '^export (\w+)="(.*)"$') {
+              $name = $Matches[1]
+              $value = $Matches[2] -replace '\\"', '"'
+              echo "${name}=${value}" >> $env:GITHUB_ENV
+            }
+          }
+          echo "TAG=$TAG" >> $env:GITHUB_ENV
+          Write-Host "Game=$env:GAME Tag=$TAG Env=$env:DEPLOY_ENV Channel=$env:CHANNEL"
+
+      - name: Mock build (fixture → build/)
+        shell: pwsh
+        run: |
+          & $env:ENGINE_BIN mock-build --config=$env:CONFIG --output=build
+
+      - name: Inject version.txt into assets
+        shell: pwsh
+        run: |
+          & $env:ENGINE_BIN inject-version --source=build/assets --tag=$env:TAG --channel=$env:CHANNEL
+
+      - name: Protect (encrypt + compress → single .exe)
+        shell: pwsh
+        run: |
+          & $env:ENGINE_BIN protect --config=$env:CONFIG --tag=$env:TAG --build-dir=build --output-dir=output
+
+      - name: Generate manifests (single_exe)
+        shell: pwsh
+        run: |
+          & $env:ENGINE_BIN manifest --config=$env:CONFIG --tag=$env:TAG --artifact=$env:ARTIFACT_PATH --output-dir=output
+
+      - name: Deploy to R2
+        shell: pwsh
+        run: |
+          # exclude-prefix keeps the macOS pipeline's nested artifacts safe from mirror delete
+          & $env:ENGINE_BIN sync output --dest=$env:R2_RELEASES_PATH --config=$env:CONFIG --exclude-prefix=macos/
+
+      - name: Update channel manifest
+        shell: pwsh
+        run: |
+          $force = if ($env:FORCE_CHANNEL -eq 'true') { '--force' } else { '' }
+          & $env:ENGINE_BIN update-channel --config=$env:CONFIG --tag=$env:TAG --local=output/channel-manifest.json $force
+
+      - name: Verify CDN
+        shell: pwsh
+        run: |
+          & $env:ENGINE_BIN verify --config=$env:CONFIG --tag=$env:TAG
+
+      - name: Upload manifest artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.GAME }}-${{ env.TAG }}-manifests-windows
+          path: |
+            output/manifest.json
+            output/channel-manifest.json
+          if-no-files-found: error
