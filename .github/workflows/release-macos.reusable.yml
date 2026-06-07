@@ -112,9 +112,9 @@ jobs:
           if [ -n "${TOOLS_DOWNLOAD_TOKEN:-}" ]; then
             auth=(-H "Authorization: Bearer $TOOLS_DOWNLOAD_TOKEN")
           fi
-          curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" \
+          curl -fSL ${auth[@]+"${auth[@]}"} -H "Accept: application/octet-stream" \
             -o "$tarball" "$base/maxgame-release-macos-aarch64.tar.gz"
-          curl -fSL "${auth[@]}" -H "Accept: application/octet-stream" \
+          curl -fSL ${auth[@]+"${auth[@]}"} -H "Accept: application/octet-stream" \
             -o "$sha_file" "$base/maxgame-release-macos-aarch64.tar.gz.sha256"
           expected="$(tr -d '[:space:]' < "$sha_file")"
           actual="$(shasum -a 256 "$tarball" | awk '{print $1}')"
